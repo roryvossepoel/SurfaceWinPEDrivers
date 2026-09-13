@@ -43,9 +43,35 @@ wifi</code></pre>
             $catalog = @(Get-SurfaceWinPEImportCatalog -Uri 'https://example.test/winpe')
             $catalog.Count | Should -Be 1
             ($catalog[0].ImportFolders -join ',') | Should -Be 'acpiplatformextension,SerialHub,wifi'
+            $catalog[0].ImportFolderSource | Should -Be 'PrimaryImportFolders'
             $catalog[0].RequiredPackageCount | Should -Be 1
             $catalog[0].RequiredPackages[0].Folder | Should -Be 'SurfaceHidMini_WinPE_Intel'
             $catalog[0].RequiredPackages[0].DownloadUrl | Should -Be 'https://download.microsoft.com/example/SurfaceHidMini_WinPE.zip'
+        }
+
+        It 'prefers Microsoft newer SurfaceUpdate guidance for legacy Surface MSI layouts' {
+            $sample = @'
+<html><body>
+<h3>Surface Laptop 2</h3>
+<p>Import folders</p>
+<pre><code>SurfacePlatformInstaller\Drivers\System\GPIO
+SurfacePlatformInstaller\Drivers\System\I2C
+SurfacePlatformInstaller\Drivers\System\PreciseTouch
+SurfacePlatformInstaller\Drivers\System\SPI
+SurfacePlatformInstaller\Drivers\System\SurfaceHIDMiniDriver
+SurfacePlatformInstaller\Drivers\System\SurfaceSerialHubDriver
+SurfacePlatformInstaller\Drivers\System\UART</code></pre>
+<p>More information: For newer .msi files beginning with "SurfaceUpdate", use: SurfaceUpdate\SerialIOGPIO, SurfaceUpdate\serialioi2c, SurfaceUpdate\SerialIOSPI, SurfaceUpdate\SerialIOUART, SurfaceUpdate\SurfaceHidMini, SurfaceUpdate\SurfaceSerialHub, SurfaceUpdate\Itouch</p>
+<h2>Next</h2>
+</body></html>
+'@ -replace '\\"','"'
+            Mock Invoke-SurfaceWebRequest { [pscustomobject]@{ Content = $sample } }
+
+            $catalog = @(Get-SurfaceWinPEImportCatalog -Uri 'https://example.test/winpe')
+            $catalog.Count | Should -Be 1
+            $catalog[0].ImportFolderSource | Should -Be 'SurfaceUpdateGuidance'
+            ($catalog[0].ImportFolders -join ',') |
+                Should -Be 'SerialIOGPIO,serialioi2c,SerialIOSPI,SerialIOUART,SurfaceHidMini,SurfaceSerialHub,Itouch'
         }
 
         It 'discovers official Download Center IDs from driver catalog HTML fallback' {
