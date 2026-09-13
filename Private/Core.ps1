@@ -81,105 +81,6 @@ function Get-SurfaceCpuVendorFromName {
     return 'Intel'
 }
 
-function Get-SurfaceWinPEImportCatalog {
-    [CmdletBinding()]
-    param([string]$Uri = $script:WinPEDocumentationUrl)
-
-    $response = Invoke-SurfaceWebRequest -Uri $Uri
-    $html = [string]$response.Content
-
-    $sectionPattern = '(?is)<h3\b[^>]*>(?<heading>.*?)</h3>(?<body>.*?)(?=<h3\b|<h2\b|$)'
-    $sections = [regex]::Matches($html, $sectionPattern)
-    $results = @()
-
-    foreach ($section in $sections) {
-        $heading = ConvertFrom-SurfaceHtmlText $section.Groups['heading'].Value
-        if ($heading -notmatch '^Surface\s') { continue }
-
-        $body = $section.Groups['body'].Value
-        $codeMatch = [regex]::Match($body, '(?is)<pre\b[^>]*>\s*<code\b[^>]*>(?<code>.*?)</code>\s*</pre>')
-        if (-not $codeMatch.Success) { continue }
-
-        $code = ConvertFrom-SurfaceHtmlText $codeMatch.Groups['code'].Value
-        $folders = @(
-            $code -split "`r?`n" |
-                ForEach-Object { $_.Trim().Trim('`') } |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                ForEach-Object {
-                    $parts = $_ -split '[\\/]'
-                    $parts[-1].Trim()
-                } |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                Select-Object -Unique
-        )
-
-        $requiredPackages = @()
-        $requiredNames = @(
-            [regex]::Matches($body, '(?i)SurfaceHidMini_WinPE_(?:Intel|ARM)') |
-                ForEach-Object { $_.Value } |
-                Select-Object -Unique
-        )
-
-        foreach ($requiredName in $requiredNames) {
-            $link = [regex]::Match($body, '(?is)href=["''](?<url>https://download\.microsoft\.com/[^"'']+)["'']')
-            if (-not $link.Success) {
-                $link = [regex]::Match($html, '(?is)href=["''](?<url>https://download\.microsoft\.com/[^"'']*SurfaceHidMini[^"'']*\.zip[^"'']*)["'']')
-            }
-
-            $requiredPackages += [pscustomobject]@{
-                Name        = $requiredName
-                Folder      = $requiredName
-                DownloadUrl = if ($link.Success) { [System.Net.WebUtility]::HtmlDecode($link.Groups['url'].Value) } else { $null }
-                ArchiveType = 'Zip'
-                Required    = $true
-            }
-        }
-
-        $results += [pscustomobject]@{
-            Model                  = $heading
-            ModelKey               = Get-SurfaceModelKey -Name $heading
-            Architecture           = Get-SurfaceArchitectureFromName -Name $heading
-            CpuVendor              = Get-SurfaceCpuVendorFromName -Name $heading
-            ImportFolders          = $folders
-            ImportFolderCount      = $folders.Count
-            RequiredPackages       = $requiredPackages
-            RequiredPackageCount   = $requiredPackages.Count
-            SourceUrl              = $Uri
-        }
-    }
-
-    return $results
-}
-
-function Get-SurfaceDriverDownloadCatalog {
-    [CmdletBinding()]
-    param([string]$Uri = $script:DriverCatalogUrl)
-
-    $response = Invoke-SurfaceWebRequest -Uri $Uri
-    $html = [string]$response.Content
-
-    $pattern = '(?is)<a\b[^>]*href=["''](?<url>https://www\.microsoft\.com/[^"'']*?/download/details\.aspx\?id=(?<id>\d+)[^"'']*)["''][^>]*>(?<name>.*?)</a>'
-    $matches = [regex]::Matches($html, $pattern)
-    $results = @()
-
-    foreach ($match in $matches) {
-        $name = ConvertFrom-SurfaceHtmlText $match.Groups['name'].Value
-        if ($name -notmatch '^Surface\s') { continue }
-
-        $results += [pscustomobject]@{
-            Model            = $name
-            ModelKey         = Get-SurfaceModelKey -Name $name
-            DownloadCenterId = [int]$match.Groups['id'].Value
-            DetailsUrl       = [System.Net.WebUtility]::HtmlDecode($match.Groups['url'].Value)
-            Architecture     = Get-SurfaceArchitectureFromName -Name $name
-            CpuVendor        = Get-SurfaceCpuVendorFromName -Name $name
-            SourceUrl        = $Uri
-        }
-    }
-
-    return @($results | Sort-Object DownloadCenterId -Unique)
-}
-
 function Get-SurfaceDiscovery {
     [CmdletBinding()]
     param()
@@ -191,6 +92,12 @@ function Get-SurfaceDiscovery {
         $matches = @($downloads | Where-Object ModelKey -eq $entry.ModelKey)
         $status = if ($matches.Count -eq 1) { 'Matched' } elseif ($matches.Count -eq 0) { 'Unmatched' } else { 'Ambiguous' }
         $match = if ($matches.Count -eq 1) { $matches[0] } else { $null }
+        $importFolderSource = if ($entry.PSObject.Properties['ImportFolderSource']) {
+            [string]$entry.ImportFolderSource
+        }
+        else {
+            'PrimaryImportFolders'
+        }
 
         $obj = [pscustomobject]@{
             PSTypeName             = 'SurfaceWinPEDrivers.Model'
@@ -200,6 +107,7 @@ function Get-SurfaceDiscovery {
             CpuVendor              = $entry.CpuVendor
             ImportFolders          = @($entry.ImportFolders)
             ImportFolderCount      = $entry.ImportFolderCount
+            ImportFolderSource     = $importFolderSource
             RequiredPackages       = @($entry.RequiredPackages)
             RequiredPackageCount   = $entry.RequiredPackageCount
             DownloadModel          = if ($match) { $match.Model } else { $null }
@@ -257,61 +165,6 @@ function Get-SurfaceDownloadCenterData {
         DetailsUrl = $detailsUrl
         Files      = @($view.downloadFile)
     }
-}
-
-function Get-SurfaceLatestDriverPack {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][int]$DownloadCenterId,
-        [Parameter(Mandatory)][string]$DefaultCpuVendor,
-        [Parameter(Mandatory)][string]$DefaultArchitecture
-    )
-
-    $data = Get-SurfaceDownloadCenterData -DownloadCenterId $DownloadCenterId
-    $packs = @()
-
-    foreach ($file in @($data.Files)) {
-        $name = [string]$file.name
-        $url  = [string]$file.url
-        if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($url)) { continue }
-        if ($name -notmatch '(?i)_Win11_') { continue }
-        if ($name -notmatch '(?i)\.msi$') { continue }
-        if ($name -notmatch '_Win11_(?<build>\d{5})_') { continue }
-        $build = [int]$Matches.build
-        if ($name -notmatch '_(?<version>\d+\.\d+\.\d+\.\d+)\.msi$') { continue }
-        $version = $Matches.version
-
-        $vendor = $DefaultCpuVendor
-        if ($name -match '(?i)_Intel_') { $vendor = 'Intel' }
-        elseif ($name -match '(?i)_AMD_') { $vendor = 'AMD' }
-        elseif ($name -match '(?i)_ARM(?:64)?(?:_|$)') { $vendor = 'Snapdragon' }
-
-        $architecture = $DefaultArchitecture
-        if ($name -match '(?i)_ARM(?:64)?(?:_|$)') { $architecture = 'ARM64' }
-
-        $size = $null
-        try { if ($file.size) { $size = [int64]([string]$file.size) } } catch {}
-
-        $packs += [pscustomobject]@{
-            DriverPackFileName = $name
-            DriverPackVersion  = $version
-            OsName             = 'Windows 11'
-            OsBuildNumber      = $build
-            CpuVendor          = $vendor
-            CpuArchitecture    = $architecture
-            DownloadUrl        = $url
-            PublishedDate      = Convert-DateTextToIsoUtc ([string]$file.datePublished)
-            FileSizeBytes      = $size
-            DetailsUrl         = $data.DetailsUrl
-        }
-    }
-
-    if ($packs.Count -eq 0) { return $null }
-
-    return ($packs | Sort-Object `
-        @{ Expression = 'OsBuildNumber'; Descending = $true },
-        @{ Expression = { [version]$_.DriverPackVersion }; Descending = $true } |
-        Select-Object -First 1)
 }
 
 function Test-SurfaceUri {
