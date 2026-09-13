@@ -1,7 +1,5 @@
-BeforeAll {
-    $modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'SurfaceWinPEDrivers.psd1'
-    Import-Module $modulePath -Force
-}
+$modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'SurfaceWinPEDrivers.psd1'
+Import-Module $modulePath -Force
 
 Describe 'Surface driver-pack selection for WinPE' {
     InModuleScope SurfaceWinPEDrivers {
