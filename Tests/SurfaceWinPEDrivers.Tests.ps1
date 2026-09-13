@@ -1,7 +1,5 @@
-BeforeAll {
-    $modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'SurfaceWinPEDrivers.psd1'
-    Import-Module $modulePath -Force
-}
+$modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'SurfaceWinPEDrivers.psd1'
+Import-Module $modulePath -Force
 
 Describe 'SurfaceWinPEDrivers module' {
     It 'exports the expected public commands' {
@@ -50,7 +48,7 @@ wifi</code></pre>
             $catalog[0].RequiredPackages[0].DownloadUrl | Should -Be 'https://download.microsoft.com/example/SurfaceHidMini_WinPE.zip'
         }
 
-        It 'discovers official Download Center IDs from driver catalog HTML' {
+        It 'discovers official Download Center IDs from driver catalog HTML fallback' {
             $sample = @'
 <html><body>
 <a href="https://www.microsoft.com/en-us/download/details.aspx?id=108669">Surface Laptop for Business 8th Edition (Intel)</a>
