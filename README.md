@@ -2,7 +2,7 @@
 
 `SurfaceWinPEDrivers` is a PowerShell module that dynamically discovers and downloads the Microsoft Surface drivers required for Windows PE.
 
-The module does **not** maintain a static Surface model or WinPE driver list. Instead, it combines Microsoft's current Surface WinPE deployment guidance with the official Surface driver and firmware download catalog, resolves the newest Windows 11 driver pack for each selected model, and copies only the WinPE driver folders Microsoft currently documents.
+The module does **not** maintain a static Surface model or WinPE driver list. Instead, it combines Microsoft's current Surface WinPE deployment guidance with the official Surface driver and firmware download catalog, resolves the newest supported Surface driver pack for each selected model, and copies only the WinPE driver folders Microsoft currently documents.
 
 ## Why
 
@@ -12,14 +12,15 @@ Surface driver packs are cumulative MSI packages intended for full Windows deplo
 
 1. Discover Surface models from Microsoft's WinPE deployment guidance.
 2. Read the required **Import folders** for each model.
-3. Detect required extra WinPE packages such as `SurfaceHidMini_WinPE_Intel` or `SurfaceHidMini_WinPE_ARM` when Microsoft publishes them as prerequisites.
-4. Match each WinPE model to the official Surface driver download catalog.
-5. Resolve the newest available Windows 11 MSI for the selected model.
-6. Download and administratively extract the MSI.
-7. Copy only the documented WinPE driver folders to the requested output directory.
-8. Add required prerequisite packages to the same model output.
+3. Prefer Microsoft's explicit `SurfaceUpdate` folder guidance when a legacy model section also documents older `SurfacePlatformInstaller` paths.
+4. Detect required extra WinPE packages such as `SurfaceHidMini_WinPE_Intel` or `SurfaceHidMini_WinPE_ARM` when Microsoft publishes them as prerequisites.
+5. Match each WinPE model to the official Surface driver download catalog.
+6. Resolve the newest supported Surface driver pack MSI for the selected model.
+7. Download and administratively extract the MSI.
+8. Copy only the documented WinPE driver folders to the requested output directory.
+9. Add required prerequisite packages to the same model output.
 
-The Surface MSI itself is never installed on the target Windows installation.
+The Surface MSI itself is never installed on the target Windows installation. The OS label in the MSI filename is treated as metadata rather than as a WinPE compatibility gate. This allows older models that remain in Microsoft's current WinPE guidance to use their current Win10-named driver pack while newer models use Win11-named packs.
 
 ## Microsoft sources
 
@@ -72,6 +73,8 @@ Inspect everything Microsoft publishes for a model:
 Get-SurfaceWinPEModel -Model '*Pro 12*' | Format-List *
 ```
 
+`ImportFolderSource` shows whether the folder list came from the model's primary **Import folders** block or from Microsoft's explicit newer-`SurfaceUpdate` guidance for a legacy model.
+
 ### CLI selection
 
 ```powershell
@@ -114,10 +117,12 @@ The dry run checks that every WinPE model:
 
 - has a non-empty Microsoft **Import folders** list;
 - maps uniquely to the official Surface driver catalog;
-- resolves a current Windows 11 MSI;
+- resolves a supported Surface driver pack MSI;
 - has a reachable MSI download URL;
 - includes every required prerequisite package Microsoft specifies;
 - has a reachable prerequisite download URL.
+
+The manifest records the selected MSI filename, driver-pack version, OS label/build, architecture, WinPE folder source, Import folders, prerequisites, and URL validation results.
 
 It also records Surface models present in the general driver catalog but not currently present in the WinPE guidance. This makes changes on either Microsoft source visible.
 
@@ -128,6 +133,8 @@ Get-SurfaceWinPEModel |
     Out-GridView -Title 'Select Surface models to validate' -PassThru |
     New-SurfaceWinPEManifest -Path '.\SurfaceWinPE.Manifest.json' -Validate
 ```
+
+The dry run deliberately does **not** download and extract every MSI. Physical verification that Microsoft's documented Import folders exist in the selected MSI therefore happens in `Save-SurfaceWinPEDriver`.
 
 ## Required SurfaceHidMini WinPE packages
 
@@ -164,19 +171,38 @@ C:\WinPE\Surface\
     └── .surfacewinpe.json
 ```
 
-Only the final WinPE driver folders are retained in the output directory. The MSI, expanded MSI contents, and downloaded prerequisite archives are temporary working data and are removed after a successful build.
+Only the final WinPE driver folders are retained in the output directory. The MSI, expanded MSI contents, and downloaded prerequisite archives are temporary working data and are removed after a successful build. If a build fails, the temporary working directory is preserved and its path is shown for troubleshooting.
 
-The `.surfacewinpe.json` file records the driver pack version and a configuration hash. A later run skips a model when both the newest driver pack and Microsoft's current WinPE driver configuration are unchanged. Use `-Force` to rebuild it anyway.
+The `.surfacewinpe.json` file records the selected driver pack, OS label/build, Import folders, folder-source metadata, prerequisites, configuration hash, and any Microsoft guidance mismatch encountered while building the output.
+
+A later run skips a model when both the selected driver pack version and Microsoft's current WinPE driver configuration are unchanged. Use `-Force` to rebuild it anyway. Existing output with a recorded guidance mismatch returns `CurrentWithWarnings` without downloading the MSI again.
+
+## Guidance mismatch behavior
+
+Microsoft Learn and the currently published Surface MSI are separate sources and can temporarily be out of sync.
+
+When at least one documented Import folder is present but other documented folders are missing, the module:
+
+- emits a warning;
+- copies the documented folders that are actually present;
+- records the missing folder names in `.surfacewinpe.json` under `MissingImportFolders`;
+- records a `MicrosoftGuidanceMismatch` warning in the metadata;
+- returns `SavedWithWarnings` (or `CurrentWithWarnings` on a later unchanged run).
+
+Required prerequisite packages remain mandatory and are **not** downgraded to warnings.
 
 ## Safety and validation behavior
 
-The module intentionally fails rather than silently producing an incomplete driver set when:
+The module intentionally fails rather than silently guessing when:
 
 - a WinPE model cannot be matched uniquely to a Microsoft driver download entry;
 - Microsoft publishes no Import folders for the selected model;
+- no supported Surface driver pack MSI can be resolved;
+- none of the Microsoft-published WinPE Import folders can be found after extracting the selected Surface MSI;
 - a required `SurfaceHidMini_WinPE_*` package has no resolvable download URL;
-- a documented Import folder cannot be found after extracting the latest Surface MSI;
 - a required prerequisite folder cannot be found inside its archive.
+
+A partial Import-folder mismatch is handled as the explicit warning scenario described above instead of as a hard failure.
 
 ## Requirements
 
@@ -189,7 +215,7 @@ The module intentionally fails rather than silently producing an incomplete driv
 
 The repository contains:
 
-- Pester unit tests for model normalization, parsing, and configuration hashing;
+- Pester unit tests for model normalization, source parsing, legacy/newer MSI folder guidance, driver-pack selection, and configuration hashing;
 - Windows PowerShell 5.1 module import validation;
 - a live Microsoft smoke test that builds and validates a manifest without downloading MSI contents;
 - a weekly scheduled live smoke test to detect upstream Microsoft page/catalog changes.
