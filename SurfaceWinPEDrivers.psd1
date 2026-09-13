@@ -11,6 +11,7 @@
 
     FunctionsToExport    = @(
         'Get-SurfaceWinPEModel',
+        'New-SurfaceWinPEManifest',
         'Save-SurfaceWinPEDriver'
     )
     CmdletsToExport      = @()
