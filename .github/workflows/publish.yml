@@ -4,73 +4,12 @@ on:
   release:
     types: [published]
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/publish.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release-and-publish-1-0-0:
-    if: github.event_name == 'push'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Create GitHub release 1.0.0
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $tag = 'v1.0.0'
-          $target = '06e52942cc7febfd5b4ad629ec9526e71d014353'
-
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -ne 0) {
-              gh release create $tag `
-                  --repo $env:GITHUB_REPOSITORY `
-                  --target $target `
-                  --title 'SurfaceWinPEDrivers 1.0.0' `
-                  --notes 'Initial public release of SurfaceWinPEDrivers. Dynamically discovers Microsoft Surface WinPE guidance and driver packs, supports modern and legacy Surface MSI sources, required SurfaceHidMini WinPE prerequisites, manifest validation, CLI/pipeline/Out-GridView selection, and guidance-mismatch reporting.'
-              if ($LASTEXITCODE -ne 0) {
-                  throw 'Failed to create GitHub release v1.0.0.'
-              }
-          }
-          else {
-              Write-Host 'GitHub release v1.0.0 already exists.'
-          }
-
-      - name: Build module package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          .\build.ps1 | Format-List
-
-      - name: Validate module package
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Test-ModuleManifest .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 | Format-List Name,Version,Description
-          Import-Module .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 -Force
-          Get-Command -Module SurfaceWinPEDrivers | Format-Table -AutoSize
-
-      - name: Publish to PowerShell Gallery
-        shell: pwsh
-        env:
-          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
-              throw 'Repository secret PSGALLERY_API_KEY is not configured.'
-          }
-          Publish-Module -Path .\out\SurfaceWinPEDrivers -NuGetApiKey $env:PSGALLERY_API_KEY -Repository PSGallery
-
   publish:
-    if: github.event_name != 'push'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
