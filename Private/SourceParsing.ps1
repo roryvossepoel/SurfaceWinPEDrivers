@@ -87,7 +87,8 @@ function Get-SurfaceDriverDownloadCatalog {
     }
 
     foreach ($link in $links) {
-        $href = [string]$link.href
+        if (-not $link -or -not $link.PSObject.Properties['href']) { continue }
+        $href = [string]$link.PSObject.Properties['href'].Value
         if ([string]::IsNullOrWhiteSpace($href)) { continue }
         $href = [System.Net.WebUtility]::HtmlDecode($href)
         if ($href -notmatch '(?i)download/details\.aspx\?[^#]*\bid=(?<id>\d+)') { continue }
@@ -98,9 +99,9 @@ function Get-SurfaceDriverDownloadCatalog {
         }
 
         $name = ''
-        if ($link.PSObject.Properties['innerText']) { $name = [string]$link.innerText }
-        elseif ($link.PSObject.Properties['innerHTML']) { $name = ConvertFrom-SurfaceHtmlText ([string]$link.innerHTML) }
-        elseif ($link.PSObject.Properties['outerHTML']) { $name = ConvertFrom-SurfaceHtmlText ([string]$link.outerHTML) }
+        if ($link.PSObject.Properties['innerText']) { $name = [string]$link.PSObject.Properties['innerText'].Value }
+        elseif ($link.PSObject.Properties['innerHTML']) { $name = ConvertFrom-SurfaceHtmlText ([string]$link.PSObject.Properties['innerHTML'].Value) }
+        elseif ($link.PSObject.Properties['outerHTML']) { $name = ConvertFrom-SurfaceHtmlText ([string]$link.PSObject.Properties['outerHTML'].Value) }
         $name = [System.Net.WebUtility]::HtmlDecode($name).Trim()
         if ($name -notmatch '^Surface\s') { continue }
 
