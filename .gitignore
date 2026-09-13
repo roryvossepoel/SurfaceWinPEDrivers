@@ -1,0 +1,5 @@
+out/
+*.partial
+*.log
+.vscode/
+.DS_Store
