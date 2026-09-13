@@ -1,5 +1,7 @@
 # SurfaceWinPEDrivers
 
+[![PowerShell Gallery](https://img.shields.io/powershellgallery/v/SurfaceWinPEDrivers?label=PowerShell%20Gallery)](https://www.powershellgallery.com/packages/SurfaceWinPEDrivers)
+
 `SurfaceWinPEDrivers` is a PowerShell module that dynamically discovers and downloads the Microsoft Surface drivers required for Windows PE.
 
 The module does **not** maintain a static Surface model or WinPE driver list. Instead, it combines Microsoft's current Surface WinPE deployment guidance with the official Surface driver and firmware download catalog, resolves the newest supported Surface driver pack for each selected model, and copies only the WinPE driver folders Microsoft currently documents.
@@ -35,7 +37,7 @@ Because both sources can change independently, discovery reports unmatched and a
 
 ### PowerShell Gallery
 
-Once published:
+Install the published module directly from the PowerShell Gallery:
 
 ```powershell
 Install-Module SurfaceWinPEDrivers
