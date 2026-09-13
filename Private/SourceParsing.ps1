@@ -30,6 +30,32 @@ function Get-SurfaceWinPEImportCatalog {
                 Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
                 Select-Object -Unique
         )
+        $importFolderSource = 'PrimaryImportFolders'
+
+        # Older Surface sections can document legacy SurfacePlatformInstaller paths in the
+        # primary code block and then explicitly provide the correct folder names for newer
+        # MSI packages beginning with "SurfaceUpdate". Prefer Microsoft's newer-MSI guidance
+        # whenever it is present instead of maintaining a hard-coded alias table.
+        $surfaceUpdateGuidance = [regex]::Match(
+            $body,
+            '(?is)For\s+newer\s+\.msi\s+files\s+beginning\s+with.*?SurfaceUpdate.*?use:\s*(?<list>.*?)(?=</p>|<h[1-6]\b|$)'
+        )
+        if ($surfaceUpdateGuidance.Success) {
+            $surfaceUpdateFolders = @(
+                [regex]::Matches(
+                    $surfaceUpdateGuidance.Groups['list'].Value,
+                    '(?i)SurfaceUpdate\\(?<folder>[A-Za-z0-9._-]+)'
+                ) |
+                    ForEach-Object { $_.Groups['folder'].Value } |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                    Select-Object -Unique
+            )
+
+            if ($surfaceUpdateFolders.Count -gt 0) {
+                $folders = $surfaceUpdateFolders
+                $importFolderSource = 'SurfaceUpdateGuidance'
+            }
+        }
 
         $requiredPackages = @()
         $requiredNames = @(
@@ -66,6 +92,7 @@ function Get-SurfaceWinPEImportCatalog {
             CpuVendor            = Get-SurfaceCpuVendorFromName -Name $heading
             ImportFolders        = $folders
             ImportFolderCount    = $folders.Count
+            ImportFolderSource   = $importFolderSource
             RequiredPackages     = $requiredPackages
             RequiredPackageCount = $requiredPackages.Count
             SourceUrl            = $Uri
