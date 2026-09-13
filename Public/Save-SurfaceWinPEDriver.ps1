@@ -10,7 +10,8 @@ function Save-SurfaceWinPEDriver {
         SurfaceHidMini_WinPE_Intel or SurfaceHidMini_WinPE_ARM.
 
         Only the final WinPE driver folders are kept in the output path. MSI and extraction data
-        are stored in a temporary working directory and removed after the model has been built.
+        are stored in a temporary working directory. The working directory is removed after a
+        successful build and preserved on failure for troubleshooting.
 
         Major processing stages are shown by default. Use -Quiet to suppress these status messages.
 
@@ -164,6 +165,7 @@ function Save-SurfaceWinPEDriver {
             $msiPath = Join-Path $workingPath $driverPack.DriverPackFileName
             $extractPath = Join-Path $workingPath 'extracted'
             $stagePath = Join-Path $workingPath 'output'
+            $buildSucceeded = $false
 
             try {
                 New-Item -ItemType Directory -Path $workingPath -Force | Out-Null
@@ -229,6 +231,7 @@ function Save-SurfaceWinPEDriver {
                 }
                 Move-Item -LiteralPath $stagePath -Destination $modelPath
 
+                $buildSucceeded = $true
                 Write-SurfaceStatus -Message "$prefix - Completed successfully." -Quiet:$Quiet
                 $result = [pscustomobject]@{
                     PSTypeName        = 'SurfaceWinPEDrivers.Result'
@@ -242,8 +245,15 @@ function Save-SurfaceWinPEDriver {
                 $result.PSObject.TypeNames.Insert(0, 'SurfaceWinPEDrivers.Result')
                 Write-Output $result
             }
+            catch {
+                Write-SurfaceStatus -Message "$prefix - Build failed. Temporary working directory preserved for troubleshooting: '$workingPath'." -Quiet:$Quiet
+                if (Test-Path -LiteralPath $extractPath) {
+                    Write-SurfaceStatus -Message "$prefix - Extracted MSI content is available at: '$extractPath'." -Quiet:$Quiet
+                }
+                throw
+            }
             finally {
-                if (Test-Path -LiteralPath $workingPath) {
+                if ($buildSucceeded -and (Test-Path -LiteralPath $workingPath)) {
                     Remove-Item -LiteralPath $workingPath -Recurse -Force -ErrorAction SilentlyContinue
                 }
             }
