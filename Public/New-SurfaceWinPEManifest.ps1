@@ -5,9 +5,12 @@ function New-SurfaceWinPEManifest {
 
     .DESCRIPTION
         Resolves Microsoft's current Windows PE import guidance against the official Surface
-        driver catalog and the latest Windows 11 MSI for each selected model. With -Validate,
-        the cmdlet also verifies the MSI and required prerequisite package URLs without
-        downloading their contents.
+        driver catalog and the newest supported Surface driver pack MSI for each selected model.
+        The selected MSI can be Win10- or Win11-named; the OS label is metadata because the
+        package is used only as a source for the WinPE driver folders Microsoft documents.
+
+        With -Validate, the cmdlet also verifies the driver-pack and required prerequisite package
+        URLs without downloading their contents.
 
     .PARAMETER All
         Include every model currently published on Microsoft's Surface Windows PE guidance page.
@@ -22,9 +25,9 @@ function New-SurfaceWinPEManifest {
         Destination JSON manifest path.
 
     .PARAMETER Validate
-        Test that every model is matched, has Import folders, resolves a Windows 11 MSI, and that
-        the MSI and required prerequisite package URLs are reachable. The manifest is written
-        before a validation error is thrown.
+        Test that every model is matched, has Import folders, resolves a supported Surface driver
+        pack MSI, and that the driver-pack and required prerequisite package URLs are reachable.
+        The manifest is written before a validation error is thrown.
 
     .EXAMPLE
         New-SurfaceWinPEManifest -All -Path .\SurfaceWinPE.Manifest.json -Validate
@@ -119,7 +122,7 @@ function New-SurfaceWinPEManifest {
                         -DefaultArchitecture $surface.Architecture
 
                     if (-not $driverPack) {
-                        $errors.Add('No Windows 11 MSI was found on the Microsoft Download Center page.')
+                        $errors.Add('No supported Surface driver pack MSI was found on the Microsoft Download Center page.')
                     }
                 }
                 catch {
@@ -167,25 +170,26 @@ function New-SurfaceWinPEManifest {
             if ($entryStatus -eq 'Failed') { $failureCount++ }
 
             $manifestModels += [pscustomobject]@{
-                Manufacturer       = 'Microsoft'
-                Model              = $surface.Model
-                Architecture       = $surface.Architecture
-                CpuVendor          = $surface.CpuVendor
-                DiscoveryStatus    = $surface.Status
-                DownloadModel      = $surface.DownloadModel
-                DownloadCenterId   = $surface.DownloadCenterId
-                DetailsUrl         = $surface.DetailsUrl
-                WinPE              = [pscustomobject]@{
-                    ImportFolders    = @($surface.ImportFolders)
-                    RequiredPackages = @($requiredPackageValidation)
-                    ConfigurationHash = $configurationHash
+                Manufacturer     = 'Microsoft'
+                Model            = $surface.Model
+                Architecture     = $surface.Architecture
+                CpuVendor        = $surface.CpuVendor
+                DiscoveryStatus  = $surface.Status
+                DownloadModel    = $surface.DownloadModel
+                DownloadCenterId = $surface.DownloadCenterId
+                DetailsUrl       = $surface.DetailsUrl
+                WinPE            = [pscustomobject]@{
+                    ImportFolders       = @($surface.ImportFolders)
+                    ImportFolderSource  = $surface.ImportFolderSource
+                    RequiredPackages    = @($requiredPackageValidation)
+                    ConfigurationHash   = $configurationHash
                 }
-                DriverPack         = $driverPack
-                Validation         = [pscustomobject]@{
-                    Status              = $entryStatus
-                    Errors              = @($errors)
-                    DriverPackUrl       = $driverValidation
-                    ImportFolderCount   = @($surface.ImportFolders).Count
+                DriverPack       = $driverPack
+                Validation       = [pscustomobject]@{
+                    Status               = $entryStatus
+                    Errors               = @($errors)
+                    DriverPackUrl        = $driverValidation
+                    ImportFolderCount    = @($surface.ImportFolders).Count
                     RequiredPackageCount = @($surface.RequiredPackages).Count
                 }
             }
@@ -209,18 +213,18 @@ function New-SurfaceWinPEManifest {
                 DriverCatalog = $script:DriverCatalogUrl
             }
             Discovery      = [pscustomobject]@{
-                WinPEModelCount       = $discovered.Count
-                SelectedModelCount    = @($selected).Count
-                MatchedCount          = @($discovered | Where-Object Status -eq 'Matched').Count
-                UnmatchedCount        = @($discovered | Where-Object Status -eq 'Unmatched').Count
-                AmbiguousCount        = @($discovered | Where-Object Status -eq 'Ambiguous').Count
-                DriverCatalogOnly     = $driverOnly
+                WinPEModelCount        = $discovered.Count
+                SelectedModelCount     = @($selected).Count
+                MatchedCount           = @($discovered | Where-Object Status -eq 'Matched').Count
+                UnmatchedCount         = @($discovered | Where-Object Status -eq 'Unmatched').Count
+                AmbiguousCount         = @($discovered | Where-Object Status -eq 'Ambiguous').Count
+                DriverCatalogOnly      = $driverOnly
                 DriverCatalogOnlyCount = $driverOnly.Count
             }
             Validation     = [pscustomobject]@{
-                Performed   = [bool]$Validate
+                Performed    = [bool]$Validate
                 FailureCount = $failureCount
-                Status      = if ($failureCount -eq 0) { 'Passed' } else { 'Failed' }
+                Status       = if ($failureCount -eq 0) { 'Passed' } else { 'Failed' }
             }
             Models         = $manifestModels
         }
