@@ -1,0 +1,40 @@
+name: Publish PowerShell Gallery
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build module package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\build.ps1 | Format-List
+
+      - name: Validate module package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Test-ModuleManifest .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 | Format-List Name,Version,Description
+          Import-Module .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 -Force
+          Get-Command -Module SurfaceWinPEDrivers | Format-Table -AutoSize
+
+      - name: Publish to PowerShell Gallery
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+              throw 'Repository secret PSGALLERY_API_KEY is not configured.'
+          }
+          Publish-Module -Path .\out\SurfaceWinPEDrivers -NuGetApiKey $env:PSGALLERY_API_KEY -Repository PSGallery
