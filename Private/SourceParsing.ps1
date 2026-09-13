@@ -6,12 +6,17 @@ function Get-SurfaceDriverDownloadCatalog {
 
     $response = Invoke-SurfaceWebRequest -Uri $Uri
     $results = @()
+    $links = @()
+    if ($response.PSObject.Properties['Links']) {
+        $links = @($response.Links)
+    }
 
-    foreach ($link in @($response.Links)) {
+    foreach ($link in $links) {
         $href = [string]$link.href
         if ([string]::IsNullOrWhiteSpace($href)) { continue }
         $href = [System.Net.WebUtility]::HtmlDecode($href)
         if ($href -notmatch '(?i)microsoft\.com/.*/?download/details\.aspx\?[^#]*\bid=(?<id>\d+)') { continue }
+        $downloadCenterId = [int]$Matches.id
 
         $name = ''
         if ($link.PSObject.Properties['innerText']) { $name = [string]$link.innerText }
@@ -23,7 +28,7 @@ function Get-SurfaceDriverDownloadCatalog {
         $results += [pscustomobject]@{
             Model            = $name
             ModelKey         = Get-SurfaceModelKey -Name $name
-            DownloadCenterId = [int]$Matches.id
+            DownloadCenterId = $downloadCenterId
             DetailsUrl       = $href
             Architecture     = Get-SurfaceArchitectureFromName -Name $name
             CpuVendor        = Get-SurfaceCpuVendorFromName -Name $name
