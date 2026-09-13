@@ -5,9 +5,15 @@ function Save-SurfaceWinPEDriver {
 
     .DESCRIPTION
         Dynamically resolves the selected Surface models against Microsoft's current guidance,
-        downloads the newest Windows 11 Surface driver pack, extracts the MSI, copies only the
-        published WinPE Import folders, and adds any required prerequisite packages such as
-        SurfaceHidMini_WinPE_Intel or SurfaceHidMini_WinPE_ARM.
+        downloads the newest Windows 11 Surface driver pack, extracts the MSI, copies the
+        published WinPE Import folders that are present, and adds any required prerequisite
+        packages such as SurfaceHidMini_WinPE_Intel or SurfaceHidMini_WinPE_ARM.
+
+        Microsoft Learn guidance and the currently published Surface MSI can occasionally be
+        temporarily out of sync. When Learn lists an Import folder that is not present in the
+        current MSI, the cmdlet emits a warning, records the mismatch in the output metadata,
+        and continues with the published folders that are present. Required prerequisite packages
+        remain mandatory and still cause the build to fail when they cannot be resolved.
 
         Only the final WinPE driver folders are kept in the output path. MSI and extraction data
         are stored in a temporary working directory. The working directory is removed after a
@@ -29,7 +35,7 @@ function Save-SurfaceWinPEDriver {
         pack version and current Microsoft WinPE configuration.
 
     .PARAMETER Quiet
-        Suppress user-facing processing status messages. Result objects are still returned.
+        Suppress user-facing processing status messages. Warnings and result objects are still returned.
 
     .EXAMPLE
         Save-SurfaceWinPEDriver -Model 'Surface Laptop 8 - Intel' -Path 'C:\WinPE\Surface'
@@ -142,14 +148,28 @@ function Save-SurfaceWinPEDriver {
                 $metadata.DriverPackVersion -eq $driverPack.DriverPackVersion -and
                 $metadata.ConfigurationHash -eq $configurationHash) {
 
-                Write-SurfaceStatus -Message "$prefix - Output is already current. No download or rebuild required." -Quiet:$Quiet
+                $existingMissingFolders = @()
+                if ($metadata.PSObject.Properties['MissingImportFolders']) {
+                    $existingMissingFolders = @($metadata.MissingImportFolders)
+                }
+
+                if ($existingMissingFolders.Count -gt 0) {
+                    Write-Warning ("[{0}] Output is current, but Microsoft Learn lists Import folder(s) that are not present in the current Surface MSI: {1}. This indicates that the Learn guidance and published driver pack are not fully synchronized. The missing folders were skipped when this output was built." -f $surface.Model, ($existingMissingFolders -join ', '))
+                    Write-SurfaceStatus -Message "$prefix - Output is already current with $($existingMissingFolders.Count) guidance warning(s). No download or rebuild required." -Quiet:$Quiet
+                    $currentStatus = 'CurrentWithWarnings'
+                }
+                else {
+                    Write-SurfaceStatus -Message "$prefix - Output is already current. No download or rebuild required." -Quiet:$Quiet
+                    $currentStatus = 'Current'
+                }
+
                 $result = [pscustomobject]@{
                     PSTypeName        = 'SurfaceWinPEDrivers.Result'
                     Model             = $surface.Model
                     Architecture      = $surface.Architecture
                     DriverPackVersion = $driverPack.DriverPackVersion
                     OsBuildNumber     = $driverPack.OsBuildNumber
-                    Status            = 'Current'
+                    Status            = $currentStatus
                     Path              = $modelPath
                 }
                 $result.PSObject.TypeNames.Insert(0, 'SurfaceWinPEDrivers.Result')
@@ -179,7 +199,7 @@ function Save-SurfaceWinPEDriver {
                 Expand-SurfaceMsi -MsiPath $msiPath -DestinationPath $extractPath
                 Write-SurfaceStatus -Message "$prefix - MSI extraction completed." -Quiet:$Quiet
 
-                Write-SurfaceStatus -Message "$prefix - Validating $(@($surface.ImportFolders).Count) required WinPE import folder(s)..." -Quiet:$Quiet
+                Write-SurfaceStatus -Message "$prefix - Validating $(@($surface.ImportFolders).Count) published WinPE import folder(s)..." -Quiet:$Quiet
                 $resolvedFolders = @{}
                 $missingFolders = [System.Collections.Generic.List[string]]::new()
                 foreach ($folderName in @($surface.ImportFolders)) {
@@ -188,14 +208,30 @@ function Save-SurfaceWinPEDriver {
                     else { $missingFolders.Add($folderName) }
                 }
 
-                if ($missingFolders.Count -gt 0) {
-                    throw "The latest Surface MSI does not contain all WinPE Import folders published by Microsoft for '$($surface.Model)'. Missing: $($missingFolders -join ', ')"
+                if ($resolvedFolders.Count -eq 0) {
+                    throw "None of the WinPE Import folders published by Microsoft for '$($surface.Model)' were found in the current Surface MSI."
                 }
-                Write-SurfaceStatus -Message "$prefix - All published WinPE import folders were found." -Quiet:$Quiet
+
+                $buildWarnings = [System.Collections.Generic.List[object]]::new()
+                if ($missingFolders.Count -gt 0) {
+                    $missingText = $missingFolders -join ', '
+                    $warningMessage = "Microsoft Learn lists the following WinPE Import folder(s) for '$($surface.Model)', but they are not present in the currently published Surface MSI $($driverPack.DriverPackVersion): $missingText. Microsoft Learn guidance and Surface driver packs can temporarily be out of sync. These folders will be skipped and the build will continue with the published folders that are present. Required prerequisite packages remain mandatory."
+                    Write-Warning $warningMessage
+                    $buildWarnings.Add([pscustomobject]@{
+                        Type    = 'MicrosoftGuidanceMismatch'
+                        Message = $warningMessage
+                    })
+                    Write-SurfaceStatus -Message "$prefix - Continuing with $($resolvedFolders.Count) of $(@($surface.ImportFolders).Count) published import folder(s)." -Quiet:$Quiet
+                }
+                else {
+                    Write-SurfaceStatus -Message "$prefix - All published WinPE import folders were found." -Quiet:$Quiet
+                }
 
                 Write-SurfaceStatus -Message "$prefix - Copying selected WinPE driver folders..." -Quiet:$Quiet
                 foreach ($folderName in @($surface.ImportFolders)) {
-                    Copy-SurfaceWinPEFolder -SourcePath $resolvedFolders[$folderName] -DestinationRoot $stagePath
+                    if ($resolvedFolders.ContainsKey($folderName)) {
+                        Copy-SurfaceWinPEFolder -SourcePath $resolvedFolders[$folderName] -DestinationRoot $stagePath
+                    }
                 }
 
                 foreach ($package in @($surface.RequiredPackages)) {
@@ -206,18 +242,20 @@ function Save-SurfaceWinPEDriver {
 
                 Write-SurfaceStatus -Message "$prefix - Writing output metadata..." -Quiet:$Quiet
                 $outputMetadata = [pscustomobject]@{
-                    SchemaVersion      = 1
-                    GeneratedAtUtc     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-                    Model              = $surface.Model
-                    Architecture       = $surface.Architecture
-                    DownloadCenterId   = $surface.DownloadCenterId
-                    DriverPackFileName = $driverPack.DriverPackFileName
-                    DriverPackVersion  = $driverPack.DriverPackVersion
-                    OsBuildNumber      = $driverPack.OsBuildNumber
-                    ConfigurationHash  = $configurationHash
-                    ImportFolders      = @($surface.ImportFolders)
-                    RequiredPackages   = @($surface.RequiredPackages | Select-Object Name, Folder, DownloadUrl, ArchiveType)
-                    Sources            = [pscustomobject]@{
+                    SchemaVersion        = 1
+                    GeneratedAtUtc       = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                    Model                = $surface.Model
+                    Architecture         = $surface.Architecture
+                    DownloadCenterId     = $surface.DownloadCenterId
+                    DriverPackFileName   = $driverPack.DriverPackFileName
+                    DriverPackVersion    = $driverPack.DriverPackVersion
+                    OsBuildNumber        = $driverPack.OsBuildNumber
+                    ConfigurationHash    = $configurationHash
+                    ImportFolders        = @($surface.ImportFolders)
+                    MissingImportFolders = @($missingFolders)
+                    RequiredPackages     = @($surface.RequiredPackages | Select-Object Name, Folder, DownloadUrl, ArchiveType)
+                    Warnings             = @($buildWarnings)
+                    Sources              = [pscustomobject]@{
                         WinPEGuidance = $script:WinPEDocumentationUrl
                         DriverCatalog = $script:DriverCatalogUrl
                         DriverPack    = $driverPack.DetailsUrl
@@ -232,14 +270,22 @@ function Save-SurfaceWinPEDriver {
                 Move-Item -LiteralPath $stagePath -Destination $modelPath
 
                 $buildSucceeded = $true
-                Write-SurfaceStatus -Message "$prefix - Completed successfully." -Quiet:$Quiet
+                if ($missingFolders.Count -gt 0) {
+                    Write-SurfaceStatus -Message "$prefix - Completed with warnings." -Quiet:$Quiet
+                    $resultStatus = 'SavedWithWarnings'
+                }
+                else {
+                    Write-SurfaceStatus -Message "$prefix - Completed successfully." -Quiet:$Quiet
+                    $resultStatus = 'Saved'
+                }
+
                 $result = [pscustomobject]@{
                     PSTypeName        = 'SurfaceWinPEDrivers.Result'
                     Model             = $surface.Model
                     Architecture      = $surface.Architecture
                     DriverPackVersion = $driverPack.DriverPackVersion
                     OsBuildNumber     = $driverPack.OsBuildNumber
-                    Status            = 'Saved'
+                    Status            = $resultStatus
                     Path              = $modelPath
                 }
                 $result.PSObject.TypeNames.Insert(0, 'SurfaceWinPEDrivers.Result')
