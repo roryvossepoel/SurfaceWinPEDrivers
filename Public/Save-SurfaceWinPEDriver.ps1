@@ -5,9 +5,13 @@ function Save-SurfaceWinPEDriver {
 
     .DESCRIPTION
         Dynamically resolves the selected Surface models against Microsoft's current guidance,
-        downloads the newest Windows 11 Surface driver pack, extracts the MSI, copies the
-        published WinPE Import folders that are present, and adds any required prerequisite
-        packages such as SurfaceHidMini_WinPE_Intel or SurfaceHidMini_WinPE_ARM.
+        selects the newest supported Surface driver pack MSI, extracts it, copies the published
+        WinPE Import folders that are present, and adds any required prerequisite packages such
+        as SurfaceHidMini_WinPE_Intel or SurfaceHidMini_WinPE_ARM.
+
+        The selected Surface MSI can be Win10- or Win11-named. The OS label is metadata rather
+        than a compatibility gate because the MSI is used only as a source for the Windows PE
+        driver folders Microsoft documents for that Surface model.
 
         Microsoft Learn guidance and the currently published Surface MSI can occasionally be
         temporarily out of sync. When Learn lists an Import folder that is not present in the
@@ -129,7 +133,7 @@ function Save-SurfaceWinPEDriver {
                 -DefaultArchitecture $surface.Architecture
 
             if (-not $driverPack) {
-                throw "No Windows 11 driver pack was found for '$($surface.Model)'."
+                throw "No supported Surface driver pack MSI was found for '$($surface.Model)'."
             }
 
             $packSize = Format-SurfaceFileSize -Bytes $driverPack.FileSizeBytes
@@ -155,7 +159,7 @@ function Save-SurfaceWinPEDriver {
 
                 if ($existingMissingFolders.Count -gt 0) {
                     Write-Warning ("[{0}] Output is current, but Microsoft Learn lists Import folder(s) that are not present in the current Surface MSI: {1}. This indicates that the Learn guidance and published driver pack are not fully synchronized. The missing folders were skipped when this output was built." -f $surface.Model, ($existingMissingFolders -join ', '))
-                    Write-SurfaceStatus -Message "$prefix - Output is already current with $($existingMissingFolders.Count) guidance warning(s). No download or rebuild required." -Quiet:$Quiet
+                    Write-SurfaceStatus -Message "$prefix - Output is already current with $($existingMissingFolders.Count) missing Microsoft Learn import folder(s). No download or rebuild required." -Quiet:$Quiet
                     $currentStatus = 'CurrentWithWarnings'
                 }
                 else {
@@ -249,9 +253,11 @@ function Save-SurfaceWinPEDriver {
                     DownloadCenterId     = $surface.DownloadCenterId
                     DriverPackFileName   = $driverPack.DriverPackFileName
                     DriverPackVersion    = $driverPack.DriverPackVersion
+                    DriverPackOsName     = $driverPack.OsName
                     OsBuildNumber        = $driverPack.OsBuildNumber
                     ConfigurationHash    = $configurationHash
                     ImportFolders        = @($surface.ImportFolders)
+                    ImportFolderSource   = $surface.ImportFolderSource
                     MissingImportFolders = @($missingFolders)
                     RequiredPackages     = @($surface.RequiredPackages | Select-Object Name, Folder, DownloadUrl, ArchiveType)
                     Warnings             = @($buildWarnings)
