@@ -39,12 +39,12 @@ SurfaceUpdate\SerialHub
 wifi</code></pre>
 <h2>Next</h2>
 </body></html>
-'@
+'@ -replace '\\"','"'
             Mock Invoke-SurfaceWebRequest { [pscustomobject]@{ Content = $sample } }
 
             $catalog = @(Get-SurfaceWinPEImportCatalog -Uri 'https://example.test/winpe')
             $catalog.Count | Should -Be 1
-            $catalog[0].ImportFolders | Should -Be @('acpiplatformextension','SerialHub','wifi')
+            ($catalog[0].ImportFolders -join ',') | Should -Be 'acpiplatformextension,SerialHub,wifi'
             $catalog[0].RequiredPackageCount | Should -Be 1
             $catalog[0].RequiredPackages[0].Folder | Should -Be 'SurfaceHidMini_WinPE_Intel'
             $catalog[0].RequiredPackages[0].DownloadUrl | Should -Be 'https://download.microsoft.com/example/SurfaceHidMini_WinPE.zip'
@@ -56,7 +56,7 @@ wifi</code></pre>
 <a href="https://www.microsoft.com/en-us/download/details.aspx?id=108669">Surface Laptop for Business 8th Edition (Intel)</a>
 <a href="https://www.microsoft.com/en-us/download/details.aspx?id=108671">Surface Pro for Business 12th Edition (Intel)</a>
 </body></html>
-'@
+'@ -replace '\\"','"'
             Mock Invoke-SurfaceWebRequest { [pscustomobject]@{ Content = $sample } }
 
             $catalog = @(Get-SurfaceDriverDownloadCatalog -Uri 'https://example.test/catalog')
