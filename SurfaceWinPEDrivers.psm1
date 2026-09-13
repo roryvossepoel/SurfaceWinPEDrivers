@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+try { Add-Type -AssemblyName System.Net.Http -ErrorAction Stop } catch {}
+
 $script:WinPEDocumentationUrl = 'https://learn.microsoft.com/en-us/surface/enable-surface-keyboard-for-windows-pe-deployment'
 $script:DriverCatalogUrl       = 'https://learn.microsoft.com/en-us/surface/manage-surface-driver-and-firmware-updates'
 
@@ -12,7 +14,7 @@ foreach ($scriptFile in @($privateScripts) + @($publicScripts)) {
 }
 
 Update-TypeData -TypeName 'SurfaceWinPEDrivers.Model' -DefaultDisplayPropertySet @(
-    'Model', 'Architecture', 'ImportFolderCount', 'AdditionalPackageCount', 'DownloadModel', 'Status'
+    'Model', 'Architecture', 'ImportFolderCount', 'RequiredPackageCount', 'DownloadModel', 'Status'
 ) -Force
 
 Update-TypeData -TypeName 'SurfaceWinPEDrivers.Result' -DefaultDisplayPropertySet @(
@@ -21,5 +23,6 @@ Update-TypeData -TypeName 'SurfaceWinPEDrivers.Result' -DefaultDisplayPropertySe
 
 Export-ModuleMember -Function @(
     'Get-SurfaceWinPEModel',
+    'New-SurfaceWinPEManifest',
     'Save-SurfaceWinPEDriver'
 )
