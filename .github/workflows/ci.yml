@@ -32,7 +32,18 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Install-Module Pester -MinimumVersion 5.6.1 -Scope CurrentUser -Force -SkipPublisherCheck
           $result = Invoke-Pester -Path .\Tests -PassThru
-          if ($result.FailedCount -gt 0) { throw "$($result.FailedCount) Pester test(s) failed." }
+          if ($result.FailedCount -gt 0 -or $result.FailedContainersCount -gt 0) {
+              throw "Pester failed: $($result.FailedCount) failed tests, $($result.FailedContainersCount) failed containers."
+          }
+
+      - name: Validate Gallery package staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = .\build.ps1
+          $build | Format-List
+          Test-ModuleManifest .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 | Out-Null
+          Import-Module .\out\SurfaceWinPEDrivers\SurfaceWinPEDrivers.psd1 -Force
 
   live-microsoft-smoke-test:
     if: github.event_name != 'pull_request'
@@ -46,7 +57,26 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Import-Module .\SurfaceWinPEDrivers.psd1 -Force
           $manifestPath = Join-Path $env:RUNNER_TEMP 'SurfaceWinPE.Manifest.json'
-          $manifest = New-SurfaceWinPEManifest -All -Path $manifestPath -Validate -Verbose
+
+          try {
+              $manifest = New-SurfaceWinPEManifest -All -Path $manifestPath -Validate -Verbose
+          }
+          catch {
+              if (Test-Path -LiteralPath $manifestPath) {
+                  $failedManifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+                  Write-Host "Discovery summary:"
+                  $failedManifest.Discovery | Format-List
+                  Write-Host "Failed models:"
+                  foreach ($model in @($failedManifest.Models | Where-Object { $_.Validation.Status -eq 'Failed' })) {
+                      Write-Host "FAILED: $($model.Model)"
+                      foreach ($message in @($model.Validation.Errors)) {
+                          Write-Host "  - $message"
+                      }
+                  }
+              }
+              throw
+          }
+
           $manifest.Discovery | Format-List
           $manifest.Models |
             Select-Object Model, Architecture, DiscoveryStatus,
@@ -56,8 +86,10 @@ jobs:
               @{n='Validation';e={$_.Validation.Status}} |
             Format-Table -AutoSize
 
-      - name: Upload validated manifest
+      - name: Upload live manifest
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: SurfaceWinPE-Manifest
           path: ${{ runner.temp }}/SurfaceWinPE.Manifest.json
+          if-no-files-found: warn
